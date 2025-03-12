@@ -1,1 +1,329 @@
-# CODIGOPYTHON
+import tkinter as tk
+from tkinter import simpledialog, messagebox
+from PIL import Image, ImageTk
+import os
+import csv
+import copy
+
+class TPVApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("TPV Rápido")
+        self.root.geometry("1200x800")
+
+        self.order = []
+        self.order_history = []  # Historial de acciones para deshacer
+        self.sale_number = self.get_new_sale_number()
+        self.previous_order = []
+        self.products = self.load_products()
+
+        # Crear una imagen en blanco como placeholder
+        self.placeholder_image = Image.new("RGB", (70, 70), color=(200, 200, 200))
+        self.placeholder_photo = ImageTk.PhotoImage(self.placeholder_image)
+
+        self.create_widgets()
+
+    def load_products(self):
+        # Crear archivo si no existe
+        if not os.path.exists("articulos.csv"):
+            with open("articulos.csv", mode="w", newline="") as file:
+                writer = csv.writer(file)
+                writer.writerow(["categoria", "nombre", "precio"])  # Encabezados iniciales
+
+        # Leer los productos desde articulos.csv
+        products = {
+            "refrescos": [],
+            "cervezas": [],
+            "helados": [],
+            "jugos": [],
+            "snacks": [],
+            "desayunos": [],
+            "bebidas": [],
+            "comida rápida": [],
+            "postres": []
+        }
+        with open("articulos.csv", mode="r") as file:
+            reader = csv.reader(file)
+            next(reader, None)  # Saltar encabezados
+            for row in reader:
+                category, name, price = row
+                if category in products:
+                    products[category].append({"name": name, "price": float(price)})
+        return products
+
+    def create_widgets(self):
+        # Frame para el total
+        self.total_frame = tk.Frame(self.root)
+        self.total_frame.pack(side="top", padx=10, pady=10, fill="x")
+
+        self.total_label = tk.Label(self.total_frame, text="Total: 0.00 €", font=("Arial", 14))
+        self.total_label.pack(pady=5, side="left")
+
+        self.payment_entry = tk.Entry(self.total_frame, width=10, font=("Arial", 14), justify="right")
+        self.payment_entry.pack(pady=5, side="left")
+
+        self.finalize_button = tk.Button(self.total_frame, text="Finalizar Pedido", font=("Arial", 14), command=self.finalize_order)
+        self.finalize_button.pack(pady=5, side="left")
+
+        # Frame para mostrar la orden
+        self.order_frame = tk.LabelFrame(self.root, text=f"Orden #{self.sale_number}", padx=10, pady=10)
+        self.order_frame.pack(padx=10, pady=10, fill="both", expand=False, side="top")
+
+        self.order_listbox = tk.Listbox(self.order_frame, height=10, width=50)
+        self.order_listbox.pack(side="left", padx=5)
+
+        self.delete_button = tk.Button(self.order_frame, text="Eliminar", command=self.delete_selected_item)
+        self.delete_button.pack(side="left", padx=5)
+
+        self.undo_button = tk.Button(self.order_frame, text="Deshacer", command=self.undo_last_action)
+        self.undo_button.pack(side="left", padx=5)
+
+        # Frame para categorías y productos
+        self.categories_frame = tk.LabelFrame(self.root, text="Categorías", padx=10, pady=10)
+        self.categories_frame.pack(side="left", padx=10, pady=10, fill="y")
+
+        self.products_frame = tk.LabelFrame(self.root, text="Productos", padx=10, pady=10)
+        self.products_frame.pack(side="right", padx=10, pady=10, fill="both", expand=True)
+
+        # Agrega el campo de texto quantity_entry
+        self.quantity_entry = tk.Entry(self.root, width=5, font=("Arial", 24), justify="right")
+        self.quantity_entry.insert(0, "")  # Inicializar el campo con un valor vacío
+
+        # Agrega el frame numeric_buttons_frame
+        self.numeric_buttons_frame = tk.Frame(self.root)
+        self.numeric_buttons_frame.pack(pady=10)
+        self.create_numeric_buttons()
+
+        self.create_categories()
+
+    def create_categories(self):
+        # Crear frame para las categorías
+        self.categories_frame = tk.LabelFrame(self.root, text="Categorías", padx=10, pady=10)
+        self.categories_frame.pack(side="left", padx=10, pady=10, fill="y")
+
+        # Crear los botones de las categorías en una cuadrícula con 3 columnas
+        columns = 3  # Número de columnas deseadas
+        for i, category in enumerate(self.products.keys()):
+            row, col = divmod(i, columns)  # Calcular la posición del botón en la cuadrícula
+            button = tk.Button(
+                self.categories_frame,
+                text=category.capitalize(),  # Mostrar el nombre de la categoría con la primera letra en mayúscula
+                width=10,
+                height=5,
+                command=lambda c=category: self.show_products(c)  # Acción al hacer clic en el botón
+            )
+            button.grid(row=row, column=col, padx=5, pady=5)  # Posicionar el botón en la cuadrícula
+
+    def show_products(self, category):
+        # Limpiar el frame de productos
+        for widget in self.products_frame.winfo_children():
+            widget.destroy()
+
+        # Configurar cuadrícula de 6x7 botones
+        rows, cols = 6, 7
+        button_size = 110
+        image_size = 70
+        total_items = len(self.products[category])
+        placeholders_needed = cols - (total_items % cols) if total_items % cols!= 0 else 0
+
+        for i, product in enumerate(self.products[category]):
+            row, col = divmod(i, cols)
+            button = tk.Button(
+                self.products_frame,
+                text=product["name"],
+                width=button_size,
+                height=button_size,
+                command=lambda p=product: self.add_to_order(p)
+            )
+
+            # Agregar imagen si existe
+            button_path = f"Articulos/{category}/{product['name']}.jpg"
+            if os.path.exists(button_path):
+                image = Image.open(button_path)
+                image = image.resize((image_size, image_size), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(image)
+                button.config(image=photo, compound="top")
+                button.image = photo
+            else:
+                button.config(image=self.placeholder_photo, compound="top")
+
+            button.grid(row=row, column=col, padx=5, pady=5)
+
+        # Agregar botones como placeholders (vacíos)
+        total_buttons = total_items + placeholders_needed
+        total_placeholders = (rows * cols) - total_buttons
+
+        for i in range(placeholders_needed + total_placeholders):
+            row, col = divmod(total_items + i, cols)
+            placeholder_button = tk.Button(
+                self.products_frame,
+                image=self.placeholder_photo,
+                compound="top",
+                command=lambda c=category: self.assign_product(c)
+            )
+            placeholder_button.grid(row=row, column=col, padx=5, pady=5)
+
+    def create_numeric_buttons(self):
+        self.numeric_buttons = []
+        buttons = [
+            ['1', '2', '3'],
+            ['4', '5', '6'],
+            ['7', '8', '9']
+        ]
+        for i, row in enumerate(buttons):
+            for j, text in enumerate(row):
+                button = tk.Button(self.numeric_buttons_frame, text=text, command=lambda text=text: self.append_quantity(text), font=("Arial", 10), width=5, height=2)
+                button.grid(row=i, column=j, padx=5, pady=5)
+                self.numeric_buttons.append(button)
+
+        button = tk.Button(self.numeric_buttons_frame, text="0", command=lambda text="0": self.append_quantity(text), font=("Arial", 10), width=5, height=2)
+        button.grid(row=3, column=0, padx=5, pady=5)
+        self.numeric_buttons.append(button)
+
+        delete_button = tk.Button(self.numeric_buttons_frame, text="DEL", command=self.clear_quantity, font=("Arial", 10), width=10, height=2)
+        delete_button.grid(row=3, column=1, columnspan=2, padx=5, pady=5)
+    
+    def append_quantity(self, digit):
+        current_quantity = self.quantity_entry.get()
+        if current_quantity == "":
+            self.quantity_entry.insert(0, str(digit))
+        else:
+            self.quantity_entry.insert(tk.END, str(digit))
+
+    def clear_quantity(self):
+        self.quantity_entry.delete(0, tk.END)
+
+    def add_to_order(self, product):
+        quantity_text = self.quantity_entry.get()
+        if quantity_text == "":
+            quantity = 1
+        else:
+            try:
+                quantity = int(quantity_text)
+                if quantity <= 0:
+                    quantity = 1
+            except ValueError:
+                quantity = 1
+
+        self.order_history.append(copy.deepcopy(self.order))
+        for item in self.order:
+            if item["name"] == product["name"]:
+                item["quantity"] += quantity
+                self.update_order_listbox()
+                self.update_total()
+                self.quantity_entry.delete(0, tk.END)  # Dejar el campo vacío
+                return
+
+        product_copy = product.copy()
+        product_copy["quantity"] = quantity
+        self.order.append(product_copy)
+        self.update_order_listbox()
+        self.update_total()
+        self.quantity_entry.delete(0, tk.END)  # Dejar el campo vacío
+
+    def finalize_order(self):
+        total = sum(item["quantity"] * item["price"] for item in self.order)
+        payment = self.payment_entry.get()
+
+        if not payment:
+            messagebox.showwarning("Advertencia", "Por favor, ingrese el pago.")
+            return
+
+        try:
+            payment = float(payment)
+            if payment < total:
+                messagebox.showwarning("Advertencia", "El pago es insuficiente.")
+                return
+
+            change = payment - total
+            messagebox.showinfo("Pedido Finalizado", f"Número de venta: {self.sale_number}\nPago recibido: {payment:.2f} €.\nCambio: {change:.2f} €")
+
+            self.record_sale()
+            self.clear_order()
+            self.sale_number = self.get_new_sale_number()
+            self.update_order_number_label()
+        except ValueError:
+            messagebox.showwarning("Advertencia", "El valor del pago no es válido. Intente nuevamente.")
+
+    def record_sale(self):
+        with open("ventas.csv", mode="a", newline="") as file:
+            writer = csv.writer(file)
+            for item in self.order:
+                writer.writerow([
+                    self.sale_number,
+                    item["quantity"],
+                    item["name"],
+                    item["price"],
+                    item["quantity"] * item["price"]
+                ])
+
+            total_cost = sum(item["quantity"] * item["price"] for item in self.order)
+            writer.writerow([self.sale_number, "TOTAL", "", "", total_cost])
+
+    def clear_order(self):
+        self.order.clear()
+        self.payment_entry.delete(0, tk.END)
+        self.update_order_listbox()
+        self.total_label.config(text="Total: 0.00 €")
+
+    def delete_selected_item(self):
+        try:
+            selected_index = self.order_listbox.curselection()[0]
+            self.previous_order = copy.deepcopy(self.order)
+            del self.order[selected_index]
+            self.update_order_listbox()
+            self.update_total()
+        except IndexError:
+            messagebox.showwarning("Advertencia", "Seleccione un artículo para eliminar.")
+
+    def undo_last_action(self):
+        if self.order_history:
+            self.order = self.order_history.pop()
+            self.update_order_listbox()
+            self.update_total()
+        else:
+            messagebox.showwarning("Advertencia", "No hay acciones para deshacer.")
+
+    def update_order_listbox(self):
+        self.order_listbox.delete(0, tk.END)
+        for item in self.order:
+            self.order_listbox.insert(tk.END, f"{item['quantity']} x {item['name']} - {item['quantity'] * item['price']:.2f} €")
+
+    def update_total(self):
+        total = sum(item["quantity"] * item["price"] for item in self.order)
+        self.total_label.config(text=f"Total: {total:.2f} €")
+
+    def assign_product(self, category):
+        name = simpledialog.askstring("Asignar Producto", "Ingrese el nombre del producto:")
+        if name:
+            try:
+                price = float(simpledialog.askstring("Asignar Producto", "Ingrese el precio del producto:"))
+                new_product = {"name": name, "price": price}
+                self.products[category].append(new_product)
+
+                with open("articulos.csv", mode="a", newline="") as file:
+                    writer = csv.writer(file)
+                    writer.writerow([category, name, price])
+
+                messagebox.showinfo("Producto Asignado", f"Producto '{name}' asignado a la categoría '{category.capitalize()}' con éxito.")
+                self.show_products(category)
+            except ValueError:
+                messagebox.showwarning("Advertencia", "El precio ingresado no es válido. Intente nuevamente.")
+
+    def get_new_sale_number(self):
+        if not os.path.exists("ventas.csv"):
+            return 1
+        with open("ventas.csv", mode="r") as file:
+            reader = csv.reader(file)
+            lines = list(reader)
+            if not lines:
+                return 1
+            return int(lines[-1][0]) + 1
+
+    def update_order_number_label(self):
+        self.order_frame.config(text=f"Orden #{self.sale_number}")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TPVApp(root)
+    root.mainloop()
